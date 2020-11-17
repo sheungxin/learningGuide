@@ -1,16 +1,23 @@
-@echo "Start submitting code to the local repository"
-@echo "The current directory is：%cd%"
-git add *
-@echo;
+@echo off
  
-@echo "Commit the changes to the local repository"
-set now=%date% %time%
-@echo %now%
-git commit -m "%now%"
-@echo;
+title GIT一键提交
+color 3
+echo 当前目录是：%cd%
+echo;
  
-@echo "Commit the changes to the remote git server"
-git push
-@echo;
+echo 开始添加变更：git add .
+git add .
+echo;
  
-@echo "Batch execution complete!"
+set /p declation=输入提交的commit信息:
+git commit -m "%declation%"
+echo;
+ 
+echo 将变更情况提交到远程主分支：git push origin master
+git push origin master
+echo;
+ 
+echo 执行完毕！
+echo;
+ 
+pause
