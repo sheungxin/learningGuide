@@ -471,6 +471,30 @@ StoreLoad屏障-->|Lock前缀指令|volatile读
 - 总线风暴
 > 基于 CPU 缓存一致性协议，JVM 实现了 volatile 的可见性。但由于总线嗅探机制，会不断的监听总线。如果大量使用 volatile，cas不断循环无效交互会导致总线带宽达到峰值，引起总线风暴。
 
+### 伪共享问题
+
+```java
+public class Share {
+   volatile int value;
+}
+```
+
+volatile修饰解决了value内存可见性问题，但由于线程本地缓存是以缓存行为单位，可能会存储其他变量。因此，volatile带来的缓存失效会使同一缓存行上的其他变量也失效，访问时也需要从主从中再次获取，带来性能问题，此类问题称之为伪共享。
+
+**如何解决呢？**
+
+保证一个缓存行上只有一个share变量即可。早期版本JDK有使用无用变量作为填充物解决的，但是存在不同机器缓存行大小不一致、无用填充物被JVM优化掉等问题。基于此，在Java 8官方提供了Contended 注解，如下：
+
+```java
+
+public class Share {
+    @Contended
+    volatile int value;
+}
+```
+
+使用如上注解，需要在 JVM 启动参数中加入 **-XX:-RestrictContended**，这样 JVM 在运行时就会自动的为我们的 Share 类添加合适大小的填充物（padding）来解决伪共享问题。
+
 ## final
 
 ### 基本特性
