@@ -12,7 +12,7 @@
 
 ![图摘自《码出高效》](https://sheungxin.github.io/notpic/14923529-c0cbbccaa6858ca1.png)
 
-**JDK8 之前，Hotspot 中方法区的实现是永久代（Perm），JDK8 开始使用元空间（Metaspace），以前永久代所有内容的字符串常量移至堆内存，其他内容移至元空间，元空间直接在本地内存分配。**
+**JDK8 之前，Hotspot 中方法区的实现是永久代（Perm），JDK8 开始使用元空间（Metaspace），以前永久代中字符串常量、类静态变量移至堆内存，其他内容移至元空间，元空间直接在本地内存分配。**
 
 - 内存溢出
 
@@ -926,6 +926,8 @@ GC触发条件：
 
 ## JVM调优
 
+![微信图片_20201127154300](JVM.assets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20201127154300.jpg)
+
 **GC调优是最后要做的工作**，GC调优的目的可以总结为下面两点：
 
 - 减少对象晋升到老年代的数量
@@ -948,3 +950,4 @@ GC触发条件：
 
 - [CMS调优](https://segmentfault.com/a/1190000005174819)
 - [OOM问题调优](https://mp.weixin.qq.com/s?__biz=MzAwNTQ4MTQ4NQ==&mid=2453559994&idx=1&sn=4859ab4b755890515921e9d5bbeca597&scene=21#wechat_redirect)
+- [Java中9种常见的CMS GC问题分析与解决](https://mp.weixin.qq.com/s/RFwXYdzeRkTG5uaebVoLQw)
