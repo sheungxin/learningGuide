@@ -591,7 +591,7 @@ CMS（Concurrent Mark Sweep）收集器是一种以获取最短回收停顿时�
 
 - **初始标记**：标记GC Roots能直接到的对象。速度很快但是仍存在Stop The World问题。
 - **并发标记**：进行GC Roots Tracing 的过程，找出存活对象且用户线程可并发执行。
-- **重新标记**：为了修正并发标记期间因用户程序继续运行而导致标记产生变动的那一部分对象的标记记录，仍然存在Stop The World问题。
+- **重新标记**：为了修正并发标记期间因用户程序继续运行而导致标记产生变动的那一部分对象的标记记录（例如：新生成的对象、引用关系变化造成的漏标对象记），仍然存在Stop The World问题。
 - **并发清除**：对标记的对象进行清除回收。
 
  CMS收集器的内存回收过程是与用户线程一起并发执行的。在CMS中，也有RSet的概念，在老年代中有一块区域用来记录指向新生代的引用。这是一种point-out，在进行Young GC时，扫描根时，仅仅需要扫描这一块区域，而不需要扫描整个老年代。
@@ -605,8 +605,42 @@ CMS（Concurrent Mark Sweep）收集器是一种以获取最短回收停顿时�
 **CMS收集器的缺点：**
 
 - 并发阶段会占用一部分线程（CPU资源资源），默认启动回收线程（CPU数+3）/4，CPU负载高时不适用
-- 无法处理浮动垃圾，因为并发清除时用户线程还在运行，垃圾不断产生，可能出现“Concurrent Mode Failure”失败而导致另一次的Full GC。JDK1.5默认设置下，CMS收集器当老年代使用了68%会激活，1.6启动阈值提高到92%（老年代增长不是太快）。当CMS运行期间预留内存无法满足程序运行时，就会出现上述错误，这时虚拟机将临时启动Serial Old收集器，造成停顿时间过长
+- 无法处理浮动垃圾，因为并发清除时用户线程还在运行，已标记的对象可能已失去引用，变为垃圾对象，但是GC无法处理，只能等待下一次GC，可能出现“Concurrent Mode Failure”失败而导致另一次的Full GC。JDK1.5默认设置下，CMS收集器当老年代使用了68%会激活，1.6启动阈值提高到92%（老年代增长不是太快，由参数[CMSInitiatingOccupancyFraction](https://blog.csdn.net/insomsia/article/details/91802923)决定，默认值-1，用来计算老年代最大使用率）。当CMS运行期间预留内存无法满足程序运行时，就会出现上述错误，这时虚拟机将临时启动Serial Old收集器，造成停顿时间过长
 - 标记-清除算法会产生空间碎片，因此提供了UseCMSCompactAtFullCollection开关参数，CMS收集器顶不住进行Full GC时开启内存碎片合并整理，整理过程无法并发，停顿时间会变长。另外还提供参数CMSFullGCsBeforeCompaction，用于设置执行多少次不压缩的Full GC后执行一次压缩的（默认0，每次进入Full GC都进行碎片整理）
+
+**三色标记法**
+
+三色标记法把 GC 中的对象划分成三种情况：
+
+白色：表示对象尚未被垃圾收集器访问过，显然在可达性分析刚刚开始的阶段，所有的对象都是白色的，若在分析结束的阶段，仍然是白色的对象，即代表不可达
+灰色：表示对象已经被垃圾收集器访问过，但这个对象上至少存在一个引用还没有被扫描过
+黑色：表示对象已经被垃圾收集器访问过，且这个对象的所有引用都已经扫描过。黑色的对象代表已经扫描过，它是安全存活的，如果有其他对象引用指向了黑色对象，无须重新扫描一遍。黑色对象不可能直接（不经过灰色）指向某个白色对象
+
+![image-20210315141818772](https://sheungxin.github.io/notpic/image-20210315141818772.png)
+
+由于并发标记的原因，对象D可能还没有标记，用户线程就改变了其引用，由B引用D改为A引用D，黑色对象不再进行扫描，就会出现漏标对象D的情况，会导致被引用的对象当成垃圾误删除，这是严重的bug，必须解决，有两种解决方案：虚拟机的记录操作都是通过写屏障实现的
+
+- 增量更新（Incremental Update）：当黑色对象插入新的指向白色对象的引用关系时， 就将这个新插入的引用记录下来， 等并发扫描结束之后， 再将这些记录过的引用关系中的黑色对象为根， 重新扫描一次。 可以简化理解为， 黑色对象一旦新插入了指向白色对象的引用之后， 它就变回灰色对象了（CMS：写屏障 + 增量更新）
+- 原始快照（Snapshot At The Beginning，SATB）：当灰色对象要删除指向白色对象的引用关系时， 就将这个要删除的引用记录下来， 在并发扫描结束之后， 再将这些记录过的引用关系中的灰色对象为根， 重新扫描一次，这样就能扫描到白色的对象，将白色对象直接标记为黑色。目的就是让这种对象在本轮gc清理中能存活下来，待下一轮gc的时候重新扫描，这个对象也有可能是浮动垃圾（G1：写屏障 + SATB）
+
+**CMS GC触发条件：**
+
+- **foreground collector**：触发条件比较简单，一般是遇到对象分配但空间不够，就会直接触发的Full GC，来立即进行空间回收，采用的算法是标记-整理
+
+- **background collector**：CMS后台线程不断扫描（CMSWaitDuration，默认2秒），主动判断是否符合background collector 的触发条件，如下：
+
+  - 并行Full GC
+    - [GCCause::_gc_locker](https://www.jianshu.com/p/6d664f026508)：通过加锁对进入临界区的线程计数，当最后一个线程离开临界区触发一次GC，可通过参数 -XX+GCLockerInvokesConcurrent启用
+    - GCCause::_java_lang_system_gc：手动调用System.gc()触发Full GC，可通过参数-XX+ExplicitGCInvokesConcurrent启用
+  - 基于统计数据动态计算是否需要进行CMS GC
+    - 判断逻辑是，如果预测CMS GC 完成所需要的时间大于预计的老年代将要填满的时间，则进行GC
+    - 注意，只有未配置UseCMSInitiatingOccupancyOnly（表示是否使用CMSInitiatingOccupancyFraction）时生效
+  - 根据Old Gen使用情况
+    - 若配置UseCMSInitiatingOccupancyOnly，与阈值比较（默认92%）
+    - 反之，根据CMS Gen空闲链判断，或者Old Gen因为对象分配空间而进行扩容，且成功分配空间
+
+  - Young GC 已经失败或者可能会失败
+  - 根据 meta space 情况判断，默认不会对 MetaSpace 或 Perm 进行垃圾收集，需要设置参数 `-XX:+CMSClassUnloadingEnabled`
 
 ### G1收集器
 
@@ -641,7 +675,7 @@ Region不可能是孤立的，分配在Region中的对象可以与Java堆中的�
 
 **G1收集器是如何解决上述问题的？**
 
-采用Remembered Set来避免整堆扫描。G1中每个Region都有一个与之对应的Remembered Set，虚拟机发现程序在对Reference类型进行写操作时，会产生一个**Write Barrier（写屏障）**暂时中断写操作，检查Reference引用对象是否处于多个Region中（即检查老年代中是否引用了新生代中的对象），如果是，便通过CardTable把**相关引用信息记录到被引用对象所属的Region的Remembered Set中**。当进行内存回收时，在GC根节点的枚举范围中加入Remembered Set即可保证不对全堆进行扫描也不会有遗漏。
+采用Remembered Set来避免整堆扫描。G1中每个Region都有一个与之对应的Remembered Set，虚拟机发现程序在对Reference类型进行写操作时，会产生一个**Write Barrier（写屏障）**暂时中断写操作，检查Reference引用对象是否处于其他Region中（例如检查老年代中是否引用了新生代中的对象），如果是，便通过CardTable把**相关引用信息记录到被引用对象所属的Region的Remembered Set中**。当进行内存回收时，在GC根节点的枚举范围中加入Remembered Set即可保证不对全堆进行扫描也不会有遗漏。
 
 ![img](https://sheungxin.github.io/notpic/5611237-cb85627f7fb3e70e.png)
 
@@ -672,7 +706,7 @@ CMS GC 和G1 GC算法都是通过对gc root进行遍历，并把对象分成三�
 - 并发标记时，应用线程给一个黑色对象的引用类型字段赋值了该白色对象
 - 并发标记时，应用线程删除所有灰色对象到该白色对象的引用
 
-![img](JVM.assets/5419521-bf917d0ad34173ce.png)
+![img](https://sheungxin.github.io/notpic/5419521-bf917d0ad34173ce.png)
 
 观察上图，对象D删除了与所有灰色对象的引用，且又建立了与黑色对象的引用，由于黑色对象已经扫描过了，灰色对象到对象D又不可达，就会出现漏标的情况，标记结束对象D还是白色，会被回收掉，影响程序正确性。
 
@@ -945,7 +979,7 @@ GC触发条件：
 
 ## JVM调优
 
-![微信图片_20201127154300](JVM.assets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20201127154300.jpg)
+![微信图片_20201127154300](https://sheungxin.github.io/notpic/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20201127154300.jpg)
 
 **GC调优是最后要做的工作**，GC调优的目的可以总结为下面两点：
 
@@ -965,8 +999,174 @@ GC触发条件：
 - Full GC执行非常迅速（1s以内）
 - Full GC没有频繁执行（大约10min执行一次）
 
-案例分享：
+案例参考：
 
 - [CMS调优](https://segmentfault.com/a/1190000005174819)
 - [OOM问题调优](https://mp.weixin.qq.com/s?__biz=MzAwNTQ4MTQ4NQ==&mid=2453559994&idx=1&sn=4859ab4b755890515921e9d5bbeca597&scene=21#wechat_redirect)
 - [Java中9种常见的CMS GC问题分析与解决](https://mp.weixin.qq.com/s/RFwXYdzeRkTG5uaebVoLQw)
+
+# 常见场景分析
+
+## 动态扩容引起的空间震荡
+
+**现象**
+
+服务**刚刚启动时 GC 次数较多**，最大空间剩余很多但是依然发生 GC，这种情况我们可以通过观察 GC 日志或者通过监控工具来观察堆的空间变化情况即可。GC Cause 一般为 Allocation Failure，且在 GC 日志中会观察到经历一次 GC ，堆内各个空间的大小会被调整，如下图所示：
+
+![图片](https://sheungxin.github.io/notpic/641.png)
+
+**原因分析**
+
+在 JVM 的参数中 `-Xms` 和 `-Xmx` 设置的不一致，在初始化时只会初始 `-Xms` 大小的空间存储信息，每当空间不够用时再向操作系统申请，这样的话必然要进行一次 GC。另外，如果空间剩余很多时也会进行缩容操作，JVM 通过 `-XX:MinHeapFreeRatio` 和 `-XX:MaxHeapFreeRatio` 来控制扩容和缩容的比例，调节这两个值也可以控制伸缩的时机。
+
+**解决方案**
+
+尽量**将成对出现的空间大小配置参数设置成固定的**，如 `-Xms` 和 `-Xmx`，`-XX:MaxNewSize` 和 `-XX:NewSize`，`-XX:MetaSpaceSize` 和 `-XX:MaxMetaSpaceSize` 等。不过在不追求停顿时间的情况下震荡的空间也是有利的，可以动态地伸缩以节省空间，例如作为富客户端的 Java 应用。
+
+## 显式GC的去和留
+
+**现象**
+
+手动调用 System.gc 方法会引发一次 STW 的 Full GC，对整个堆做收集，可以在 GC 日志中的 GC Cause 中确认。同时JVM提供`-XX:+DisableExplicitGC` 参数可以避免这种 GC。那么有没有必要启用该参数呢？
+
+**去留分析**
+
+首先需要了解下**DirectByteBuffer**，它有着零拷贝等特点，被 Netty 等各种 NIO 框架使用，会使用到堆外内存。它的 Native Memory 的清理工作是通过 `sun.misc.Cleaner` 自动完成的，是一种基于虚引用PhantomReference的清理工具，比普通的 Finalizer 轻量些。而为 DirectByteBuffer 分配空间过程中会显式调用 System.gc ，希望通过 Full GC 来强迫已经无用的 DirectByteBuffer 对象释放掉它们关联的 Native Memory。
+
+如果通过`-XX:+DisableExplicitGC`关闭显式GC，DirectByteBuffer分配空间中System.gc将失效，这时如果很长一段时间没有做过GC或者只做了Young GC，则不会触发Cleaner 的工作，Native Memory得不到及时释放，有可能发生内存泄漏。
+
+所以一般建议保留显式GC，但需要规范使用，避免频繁GC带来的性能开销。可通过`-XX:+ExplicitGCInvokesConcurrent` 和 `-XX:+ExplicitGCInvokesConcurrentAndUnloadsClasses` 参数来将 System.gc 的触发类型从 Foreground 改为 Background，同时 Background 也会做 Reference Processing，这样的话就能大幅降低了 STW 开销，同时也不会发生 NIO Direct Memory OOM。
+
+## MetaSpace 区 OOM
+
+**现象**
+
+JVM 在启动后或者某个时间点开始，**MetaSpace 的已使用大小在持续增长，同时每次 GC 也无法释放，调大 MetaSpace 空间也无法彻底解决**。
+
+**原因分析**
+
+Java 7 之前字符串常量池被放到了 Perm 区，所有被 intern 的 String 都会被存在这里，由于 String.intern 是不受控的，所以 `-XX:MaxPermSize` 的值也不太好设置，经常会出现 `java.lang.OutOfMemoryError: PermGen space` 异常。但在 Java 7 之后常量池等字面量（Literal）、类静态变量（Class Static）、符号引用（Symbols Reference）等几项被移到 Heap 中，PermGen 也被移除，取而代之的是 MetaSpace。在最底层，JVM 通过 mmap 接口向操作系统申请内存映射，每次申请 2MB 空间，这里是虚拟内存映射，不是真的就消耗了主存的 2MB，只有之后在使用的时候才会真的消耗内存。申请的这些内存放到一个链表中 VirtualSpaceList，作为其中的一个 Node。
+
+关键原因就是 ClassLoader 不停地在内存中 load 了新的 Class ，一般这种问题都发生在动态类加载等情况上。
+
+**解决方案**
+
+dump 快照之后通过 JProfiler 或 MAT 观察 Classes 的 Histogram(直方图)即可，或者直接通过命令即可定位， jcmd 打几次 Histogram 的图，看一下具体是哪个包下的 Class 增加较多就可以定位了。
+
+```java
+jcmd <PID> GC.class_stats|awk '{print$13}'|sed  's/\(.*\)\.\(.*\)/\1/g'|sort |uniq -c|sort -nrk1
+```
+
+经常会出问题的几个点有 Orika 的 classMap、JSON 的 ASMSerializer、Groovy 动态加载类等，基本都集中在反射、Javasisit 字节码增强、CGLIB 动态代理、OSGi 自定义类加载器等的技术点上。
+
+## 过早晋升
+
+**现象**
+
+- **分配速率接近于晋升速率**，对象晋升年龄较小
+- **Full GC 比较频繁**，且经历过一次 GC 之后 Old 区的**变化比例非常大**
+
+**原因分析及策略**
+
+- **Young/Eden 区过小**：一般情况下 Old 的大小应当为活跃对象的 2~3 倍左右，考虑到浮动垃圾问题最好在 3 倍左右，剩下的都可以分给 Young 区
+- **分配速率过大**：
+  - **偶发较大**：通过内存分析工具找到问题代码，从业务逻辑上做一些优化
+  - **一直较大**：当前的 Collector 已经不满足应用程序的期望了，这种情况要么增加应用程序的 机器，要么调整 GC 收集器类型或加大空间
+
+## CMS Old GC频繁
+
+**现象**
+
+Old 区频繁的做 CMS GC，但是每次耗时不是特别长，整体最大 STW 也在可接受范围内，但由于 GC 太频繁导致吞吐下降比较多。
+
+**原因分析**
+
+基本都是一次 Young GC 完成后，负责处理 CMS GC 的一个后台线程 concurrentMarkSweepThread 会不断地轮询，使用 `shouldConcurrentCollect()` 方法做一次检测，判断是否达到了回收条件。如果达到条件（参考上文中CMS GC触发条件），使用 `collect_in_background()` 启动一次 Background 模式 GC。轮询的判断是使用 `sleepBeforeNextCycle()` 方法，间隔周期为 `-XX:CMSWaitDuration` 决定，默认为2s。
+
+**解决方案**
+
+![图片](https://sheungxin.github.io/notpic/640.png)
+
+- Dump Diff：分别在 CMS GC 的发生前后分别 dump 一次，进行dump文件差异分析
+- Leak Suspects：内存泄露报告
+- Top Component分析：按照对象、类、类加载器、包等多个维度观察 Histogram，同时使用 outgoing 和 incoming 分析关联的对象，另外就是 Soft Reference 和 Weak Reference、Finalizer 等也要看一下
+- Unreachable分析：不可达对象分析
+
+## 单次 CMS Old GC 耗时长
+
+**现象**
+
+CMS GC 单次 STW 最大超过 1000ms，不会频繁发生。但这种场景非常危险，某些场景下会引起“雪崩效应”，我们应该尽量避免出现。
+
+**原因分析**
+
+可能造成STW的情况如下：
+
+- Init Mark
+
+  ![图片](https://sheungxin.github.io/notpic/642.png)
+
+  整个过程比较简单，从 GC Root 出发标记 Old 中的对象，处理完成后借助 BitMap 处理下 Young 区对 Old 区的引用，整个过程基本都比较快，很少会有较大的停顿。
+
+- Final Mark
+
+  Final Remark 的开始阶段与 Init Mark 处理的流程相同，但是后续多了 Card Table 遍历、Reference 实例的清理，并将其加入到 Reference 维护的 `pend_list` 中，如果要收集元数据信息，还要清理 SystemDictionary、CodeCache、SymbolTable、StringTable 等组件中不再使用的资源。
+
+- STW前等待应用线程到达安全点（较少发生）
+
+由此可见，大部分问题都出在 Final Remark 过程，观察详细 GC 日志，找到出问题时 Final Remark 日志，分析下 Reference 处理和元数据处理 real 耗时是否正常，详细信息需要通过 `-XX:+PrintReferenceGC` 参数开启。**基本在日志里面就能定位到大概是哪个方向出了问题，耗时超过 10% 的就需要关注**。
+
+一般来说最容易出问题的地方就是 Reference 中的 FinalReference 和元数据信息处理中的 scrub symbol table 两个阶段，想要找到具体问题代码就需要内存分析工具 MAT 或 JProfiler 了，注意要 dump 即将开始 CMS GC 的堆。在用 MAT 等工具前也可以先用命令行看下对象 Histogram，有可能直接就能定位问题。
+
+- 对 FinalReference 的分析主要观察 `java.lang.ref.Finalizer` 对象的 dominator tree，找到泄漏的来源。经常会出现问题的几个点有 Socket 的 `SocksSocketImpl` 、Jersey 的 `ClientRuntime`、MySQL 的 `ConnectionImpl` 等等。
+- scrub symbol table 表示清理元数据符号引用耗时，符号引用是 Java 代码被编译成字节码时，方法在 JVM 中的表现形式，生命周期一般与 Class 一致，当 `_should_unload_classes` 被设置为 true 时在 `CMSCollector::refProcessingWork()` 中与 Class Unload、String Table 一起被处理。
+
+**解决方案**
+
+一般不会大面积同时爆发，不过有很多时候单台 STW 的时间会比较长，如果业务影响比较大，及时摘掉流量，具体后续优化策略如下：
+
+- FinalReference：找到内存来源后通过优化代码的方式来解决，如果短时间无法定位可以增加 `-XX:+ParallelRefProcEnabled` 对 Reference 进行并行处理。
+- symbol table：观察 MetaSpace 区的历史使用峰值，以及每次 GC 前后的回收情况，一般没有使用动态类加载或者 DSL 处理等，MetaSpace 的使用率上不会有什么变化，这种情况可以通过 `-XX:-CMSClassUnloadingEnabled` 来避免 MetaSpace 的处理，JDK8 会默认开启 CMSClassUnloadingEnabled，这会使得 CMS 在 CMS-Remark 阶段尝试进行类的卸载。
+
+## 内存碎片&收集器退化
+
+**现象**
+
+并发的 CMS GC 算法，退化为 Foreground 单线程串行 GC 模式，STW 时间超长，有时会长达十几秒。其中 CMS 收集器退化后单线程串行 GC 算法有两种：
+
+- 带压缩动作的算法，称为 MSC，上面我们介绍过，使用标记-清理-压缩，单线程全暂停的方式，对整个堆进行垃圾收集，也就是真正意义上的 Full GC，暂停时间要长于普通 CMS。
+- 不带压缩动作的算法，收集 Old 区，和普通的 CMS 算法比较相似，暂停时间相对 MSC 算法短一些。
+
+**原型分析**
+
+- 晋升失败（Promotion Failed）：old空间不足或者碎片导致晋升失败，由于concurrentMarkSweepThread 和担保机制的存在，发生的条件是很苛刻的
+- 增量收集担保失败：分配内存失败后，会判断统计得到的 Young GC 晋升到 Old 的平均大小，以及当前 Young 区已使用的大小也就是最大可能晋升的对象大小，是否大于 Old 区的剩余空间。只要 CMS 的剩余空间比前两者的任意一者大，CMS 就认为晋升还是安全的，反之，则代表不安全，不进行Young GC，直接触发Full GC。
+- 显示GC
+- 并发模式失败（Concurrent Mode Failure）
+
+**解决方案**
+
+分析到具体原因后，我们就可以针对性解决了，具体思路还是从根因出发，具体解决策略：
+
+- **内存碎片：**通过配置 `-XX:UseCMSCompactAtFullCollection=true` 来控制 Full GC的过程中是否进行空间的整理（默认开启，注意是Full GC，不是普通CMS GC），以及 `-XX: CMSFullGCsBeforeCompaction=n` 来控制多少次 Full GC 后进行一次压缩（可以使用 `-XX:PrintFLSStatistics` 来观察内存碎片率情况，然后再设置具体的值）
+- **增量收集：**降低触发 CMS GC 的阈值，即参数 `-XX:CMSInitiatingOccupancyFraction` 的值，让 CMS GC 尽早执行，以保证有足够的连续空间，也减少 Old 区空间的使用大小，另外需要使用 `-XX:+UseCMSInitiatingOccupancyOnly` 来配合使用，不然 JVM 仅在第一次使用设定值，后续则自动调整。
+- **浮动垃圾：**视情况控制每次晋升对象的大小，或者缩短每次 CMS GC 的时间，必要时可调节 NewRatio 的值。另外就是使用 `-XX:+CMSScavengeBeforeRemark` 在过程中提前触发一次 Young GC，防止后续晋升过多对象。
+
+## 堆外内存OOM
+
+**现象**
+
+内存使用率不断上升，甚至开始使用 SWAP 内存，同时可能出现 GC 时间飙升，线程被 Block 等现象，**通过 top 命令发现 Java 进程的 RES 甚至超过了** **`-Xmx` 的大小**。出现这些现象时，基本可以确定是出现了堆外内存泄漏。
+
+**原因分析**
+
+JVM 的堆外内存泄漏，主要有两种的原因：
+
+- 通过 `UnSafe#allocateMemory`，`ByteBuffer#allocateDirect` 主动申请了堆外内存而没有释放，常见于 NIO、Netty 等相关组件。
+- 代码中有通过 JNI 调用 Native Code 申请的内存没有释放。
+
+**解决方案**
+
+首先可以使用 NMT（[NativeMemoryTracking](https://docs.oracle.com/javase/8/docs/technotes/guides/troubleshoot/tooldescr007.html)） + jcmd 分析泄漏的堆外内存是哪里申请，确定原因后，使用不同的手段，进行原因定位。
+
+![图片](https://sheungxin.github.io/notpic/643.png)

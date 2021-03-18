@@ -283,7 +283,7 @@ Redo Log Buffer用于事务提交前存放redo log，提交一个事务，会根
 select @@innodb_flush_log_at_trx_commit;
 ```
 
-**真实数据落盘与redo log无关，写redo log前数据已写入buffer poll中，崩溃恢复也是先写入buffer poll，真正的落盘是从buffer poll中发起的**
+**真实数据落盘与redo log无关，写redo log前数据已写入buffer pool中，崩溃恢复也是先写入buffer pool，真正的落盘是从buffer pool中发起的**
 
 ## undo log
 
@@ -421,7 +421,7 @@ highLevel = T9 + 1
 
 # buffer pool
 
-## 什么是buffer poll？
+## 什么是buffer pool？
 
 ![img](https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy9ZcmV6eGNraFlPeGJpYmVZNFVRdkxqakc3NmRJc2JYWUdJVDRRaWJXMlhxV0lFalRSZ1R4RklzeldaQ1k4eUNadFpvS01haWNIR2ZZUjJUZW9XQzBzZ1FnQS82NDA?x-oss-process=image/format,png)
 
@@ -566,7 +566,7 @@ KEY `index_k` (`k`) USING BTREE
 
 当MySQL 偶尔“抖”一下的那个瞬间，可能就是在刷脏页（flush），场景如下：
 
-- redo log写满了，尽量避免，此种情况，系统不能再接受更新（此处只是触发了buffer poll的flush，redo log没有能力落盘）
+- redo log写满了，尽量避免，此种情况，系统不能再接受更新（此处只是触发了buffer pool的flush，redo log没有能力落盘）
 - 系统内存不足，当需要新的内存页，淘汰数据页之前，需要把脏页写到磁盘
 - 系统空闲
 - Mysql正常关闭
