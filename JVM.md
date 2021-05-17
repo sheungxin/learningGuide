@@ -628,8 +628,7 @@ CMS（Concurrent Mark Sweep）收集器是一种以获取最短回收停顿时�
 - **foreground collector**：触发条件比较简单，一般是遇到对象分配但空间不够，就会直接触发的Full GC，来立即进行空间回收，采用的算法是标记-整理
 
 - **background collector**：CMS后台线程不断扫描（CMSWaitDuration，默认2秒），主动判断是否符合background collector 的触发条件，如下：
-
-  - 并行Full GC
+- 并行Full GC
     - [GCCause::_gc_locker](https://www.jianshu.com/p/6d664f026508)：通过加锁对进入临界区的线程计数，当最后一个线程离开临界区触发一次GC，可通过参数 -XX+GCLockerInvokesConcurrent启用
     - GCCause::_java_lang_system_gc：手动调用System.gc()触发Full GC，可通过参数-XX+ExplicitGCInvokesConcurrent启用
   - 基于统计数据动态计算是否需要进行CMS GC
@@ -638,8 +637,8 @@ CMS（Concurrent Mark Sweep）收集器是一种以获取最短回收停顿时�
   - 根据Old Gen使用情况
     - 若配置UseCMSInitiatingOccupancyOnly，与阈值比较（默认92%）
     - 反之，根据CMS Gen空闲链判断，或者Old Gen因为对象分配空间而进行扩容，且成功分配空间
-
-  - Young GC 已经失败或者可能会失败
+  
+- Young GC 已经失败或者可能会失败
   - 根据 meta space 情况判断，默认不会对 MetaSpace 或 Perm 进行垃圾收集，需要设置参数 `-XX:+CMSClassUnloadingEnabled`
 
 ### G1收集器
@@ -722,7 +721,7 @@ CMS GC 和G1 GC算法都是通过对gc root进行遍历，并把对象分成三�
 - **并发标记**：从GC Roots开始对堆中对象进行可达性分析，找出存活对象（耗时较长，但可与用户程序并发执行）
 
 - **最终标记**：为了修正在并发标记期间因用户程序执行而导致标记产生变化的那一部分标记记录，对象的变化记录在线程Remembered Set Logs里面，最终把Remembered Set Logs里面的数据合并到Remembered Set中（需要线程停顿，但可并行执行）
-- **筛选回收**：对各个Region的回收价值和成本进行排序，根据用户所期望的GC停顿时间来制定回收计划。可以做到与用户程序一起并发执行，但是因为只回收一部分Region，时间是用户可控制的，而且停顿用户线程将大幅提高收集效率。
+- **筛选回收**：对各个Region的回收价值和成本进行排序，根据用户所期望的GC停顿时间来制定回收计划。可以做到与用户程序一起并发执行，但是因为只回收一部分Region，时间是用户可控制的，而且停顿用户线程将大幅提高收集效率
 
 **G1收集器运行示意图：**
 
@@ -988,9 +987,63 @@ GC触发条件：
 
 通过监控排查问题及验证优化结果，可以分为：
 
-- 命令监控：jps、jinfo、jstack、jmap、jstat、jhat
+- 命令监控：jps、jinfo、[jstack](https://www.cnblogs.com/taiguyiba/p/9470861.html)、[jmap](https://www.jianshu.com/p/a4ad53179df3)、jstat、jhat
 - 图形化监控：[JConsole和VisualVM](https://mp.weixin.qq.com/s?__biz=MzI4NDY5Mjc1Mg==&mid=2247484023&idx=1&sn=39be119fdf3132240adc84a85bf8a054&chksm=ebf6da08dc81531e3719389555150f2d0237554b6b6c07a123efdea7c78c0ae2f064cc577bd4&scene=21#wechat_redirect)
 - 阿里巴巴开源的 Java 诊断工具：[Arthas（阿尔萨斯）](https://arthas.aliyun.com/doc/)： 
+
+```shell
+#!/bin/bash
+ps -Leo pid,lwp,user,pcpu,pmem,cmd >> /tmp/pthreads.log
+echo "ps -Leo pid,lwp,user,pcpu,pmem,cmd >> /tmp/pthreads.log" >> /tmp/pthreads.log
+echo `date` >> /tmp/pthreads.log
+echo 1
+ 
+pid=`ps aux|grep tomcat|grep cwh|awk -F ' ' '{print $2}'`
+echo 2
+ 
+echo "pstack $pid >> /tmp/pstack.log" >> /tmp/pstack.log
+pstack $pid >> /tmp/pstack.log
+echo `date` >> /tmp/pstack.log
+echo 3
+ 
+echo "lsof >> /tmp/sys-o-files.log" >> /tmp/sys-o-files.log
+lsof >> /tmp/sys-o-files.log
+echo `date` >> /tmp/sys-o-files.log
+echo 4
+ 
+echo "lsof -p $pid >> /tmp/service-o-files.log" >> /tmp/service-o-files.log
+lsof -p $pid >> /tmp/service-o-files.log
+echo `date` >> /tmp/service-o-files.log
+echo 5
+ 
+echo "jstack -l $pid  >> /tmp/js.log" >> /tmp/js.log
+jstack -l -F $pid  >> /tmp/js.log
+echo `date` >> /tmp/js.log
+echo 6 
+ 
+echo "free -m >> /tmp/free.log" >> /tmp/free.log
+free -m >> /tmp/free.log
+echo `date` >> /tmp/free.log
+echo 7
+ 
+echo "vmstat 2 1 >> /tmp/vm.log" >> /tmp/vm.log
+vmstat 2 1 >> /tmp/vm.log
+echo `date` >> /tmp/vm.log
+echo 8
+ 
+echo "jmap -dump:format=b,file=/tmp/heap.hprof 2743" >> /tmp/jmap.log
+jmap -dump:format=b,file=/tmp/heap.hprof $pid >> /tmp/jmap.log
+echo `date` >> /tmp/jmap.log
+echo 9
+ 
+echo end
+```
+
+终端环境下常用命令：
+
+- jstack定向dump文件：jps |grep Main|awk '{print $1}'|xargs -t jstack > dump1
+- 统计所有线程状态：grep java.lang.Thread.State dump1|awk '{print $2$3$4$5}'| sort | uniq -c
+- jmap获取内存排名靠前的对象：jmap -histo pid | sort -n -r -k 2 | head -10
 
 如果GC执行时间满足下列所有条件，就没有必要进行GC优化了：
 
@@ -1002,8 +1055,12 @@ GC触发条件：
 案例参考：
 
 - [CMS调优](https://segmentfault.com/a/1190000005174819)
+
 - [OOM问题调优](https://mp.weixin.qq.com/s?__biz=MzAwNTQ4MTQ4NQ==&mid=2453559994&idx=1&sn=4859ab4b755890515921e9d5bbeca597&scene=21#wechat_redirect)
+
 - [Java中9种常见的CMS GC问题分析与解决](https://mp.weixin.qq.com/s/RFwXYdzeRkTG5uaebVoLQw)
+
+-  [从实际案例聊聊Java应用的GC优化](https://tech.meituan.com/2017/12/29/jvm-optimize.html)
 
 # 常见场景分析
 
@@ -1112,6 +1169,8 @@ CMS GC 单次 STW 最大超过 1000ms，不会频繁发生。但这种场景非�
 
   Final Remark 的开始阶段与 Init Mark 处理的流程相同，但是后续多了 Card Table 遍历、Reference 实例的清理，并将其加入到 Reference 维护的 `pend_list` 中，如果要收集元数据信息，还要清理 SystemDictionary、CodeCache、SymbolTable、StringTable 等组件中不再使用的资源。
 
+- 由于跨代引用的存在，CMS在Remark阶段必须扫描整个堆，为了避免扫描时新生代有很多对象，建议通过参数CMSScavengeBeforeRemark强制Remark前进行一次Minor GC，从而降低Remark阶段的时间
+
 - STW前等待应用线程到达安全点（较少发生）
 
 由此可见，大部分问题都出在 Final Remark 过程，观察详细 GC 日志，找到出问题时 Final Remark 日志，分析下 Reference 处理和元数据处理 real 耗时是否正常，详细信息需要通过 `-XX:+PrintReferenceGC` 参数开启。**基本在日志里面就能定位到大概是哪个方向出了问题，耗时超过 10% 的就需要关注**。
@@ -1150,7 +1209,7 @@ CMS GC 单次 STW 最大超过 1000ms，不会频繁发生。但这种场景非�
 
 - **内存碎片：**通过配置 `-XX:UseCMSCompactAtFullCollection=true` 来控制 Full GC的过程中是否进行空间的整理（默认开启，注意是Full GC，不是普通CMS GC），以及 `-XX: CMSFullGCsBeforeCompaction=n` 来控制多少次 Full GC 后进行一次压缩（可以使用 `-XX:PrintFLSStatistics` 来观察内存碎片率情况，然后再设置具体的值）
 - **增量收集：**降低触发 CMS GC 的阈值，即参数 `-XX:CMSInitiatingOccupancyFraction` 的值，让 CMS GC 尽早执行，以保证有足够的连续空间，也减少 Old 区空间的使用大小，另外需要使用 `-XX:+UseCMSInitiatingOccupancyOnly` 来配合使用，不然 JVM 仅在第一次使用设定值，后续则自动调整。
-- **浮动垃圾：**视情况控制每次晋升对象的大小，或者缩短每次 CMS GC 的时间，必要时可调节 NewRatio 的值。另外就是使用 `-XX:+CMSScavengeBeforeRemark` 在过程中提前触发一次 Young GC，防止后续晋升过多对象。
+- **浮动垃圾：**视情况控制每次晋升对象的大小，或者缩短每次 CMS GC 的时间，必要时可调节 NewRatio 的值。另外就是使用 `-XX:+CMSScavengeBeforeRemark` （-XX:+ScavengeBeforeFullGC，作用类似）在过程中提前触发一次 Young GC，防止后续晋升过多对象。
 
 ## 堆外内存OOM
 
@@ -1170,3 +1229,25 @@ JVM 的堆外内存泄漏，主要有两种的原因：
 首先可以使用 NMT（[NativeMemoryTracking](https://docs.oracle.com/javase/8/docs/technotes/guides/troubleshoot/tooldescr007.html)） + jcmd 分析泄漏的堆外内存是哪里申请，确定原因后，使用不同的手段，进行原因定位。
 
 ![图片](https://sheungxin.github.io/notpic/643.png)
+
+
+
+## 慢调用问题查询
+
+**背景**：服务间调用耗时明细增加且存在超时问题
+
+**问题排查**：
+1、通过监控平台查看服务执行情况，服务执行正常，但是耗时明细增加
+2、检测服务超时配置，注册服务时超时配置60，实际上单位是毫秒（修改超时时间，调用正常）
+
+**疑问：慢调用产生的原因？**
+1、检查事发时刻的机器资源使用情况（CPU、磁盘正常、网络等正常）
+2、检查事发时刻内存、GC情况，发生了FULL GC，观测历史GC情况，情况如下：
+
+- 没有业务调用时，minor gc大概1小时一次，每次GC后回收大量空间，基本上无FULL GC，原因在于服务本身有两个后台监控任务，会创建一些临时对象
+- 当有外部流量时，minor gc频率明显增加，每分钟N次以上，minor gc耗时也增加（耗时增加不明显，并发情况下Eden区存活对象增加）、老年代空间占用逐步增加（由于动态年龄导致提前晋升）
+- 由于老年代空间占用逐步增加，最终触发FULL GC，导致停顿延长（CMS阶段并发阶段，业务正常进行，Eden区继续写入，remark阶段需要扫描Eden，扫描对象增加）
+
+**解决方案**：
+1、增大Young区大小，避免提早晋升
+2、CMS在remark前强制进行一次minor gc

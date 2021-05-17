@@ -62,3 +62,5 @@ conda config --remove-key channels
 
 
 [scrapyd 部署爬虫项目](https://blog.csdn.net/LH_python/article/details/79658855)
+
+使用scrapy做爬虫遇到的一些坑：调试成功但是没有办法输出想要的结果（request的回调函数不执行）（url去重）dont_filter=True
