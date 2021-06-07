@@ -1,0 +1,15 @@
+@echo off
+ 
+title GIT¿¿¿¿
+color 3
+echo ¿¿¿¿¿¿%cd%
+echo;
+ 
+echo ¿¿¿¿¿¿¿¿¿¿¿¿git pull origin master
+git pull origin master
+echo;
+ 
+echo ¿¿¿¿¿
+echo;
+ 
+pause
