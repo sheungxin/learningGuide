@@ -7,7 +7,7 @@ echo 开始添加变更：git add .
 git add .
 echo;
  
-read -s -p "输入提交的commit信息:" declation
+read -p  "输入提交的commit信息:" declation
 git commit -m "$declation%"
 echo;
  
