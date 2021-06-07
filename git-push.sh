@@ -1,19 +1,19 @@
 stty -echo
  
-echo ¿¿¿¿¿¿$(pwd)
+echo å½“å‰ç›®å½•æ˜¯ï¼š$(pwd)
 echo 
 
-echo ¿¿¿¿¿¿¿git add .
+echo å¼€å§‹æ·»åŠ å˜æ›´ï¼šgit add .
 git add .
 echo;
  
-set /p declation=¿¿¿¿¿commit¿¿
+set /p declation=è¾“å…¥æäº¤çš„commitä¿¡æ¯ï¼š
 git commit -m "%declation%"
 echo;
  
-echo ¿¿¿¿¿¿¿¿¿¿¿¿¿git push origin master
+echo å°†å˜æ›´æƒ…å†µæäº¤åˆ°è¿œç¨‹ä¸»åˆ†æ”¯ï¼šgit push origin master
 git push origin master
 echo;
  
-echo ¿¿¿¿
+echo æ‰§è¡Œå®Œæ¯•
 echo;
