@@ -789,6 +789,8 @@ public class CarFactoryBean implements FactoryBean<Car> {
 }
 ```
 
+
+
 # 优雅使用
 
 - [Spring Boot 统一数据格式](https://dayarch.top/p/spring-boot-global-return.html)
