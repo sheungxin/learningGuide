@@ -1041,8 +1041,8 @@ echo end
 
 终端环境下常用命令：
 
-- jstack定向dump文件：jps |grep Main|awk '{print $1}'|xargs -t jstack > dump1
-- 统计所有线程状态：grep java.lang.Thread.State dump1|awk '{print $2$3$4$5}'| sort | uniq -c
+- jstack定向dump文件：jps |grep [Main] |awk '{print $1}'|xargs -t jstack > dump1
+- 统计所有线程状态：grep java.lang.Thread.State [dump1] |awk '{print $2$3$4$5}'| sort | uniq -c
 - jmap获取内存排名靠前的对象：jmap -histo pid | sort -n -r -k 2 | head -10
 
 如果GC执行时间满足下列所有条件，就没有必要进行GC优化了：
